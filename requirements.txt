@@ -1,0 +1,13 @@
+aiohttp
+eth_abi
+loguru
+pandas
+prettytable
+psutil
+PyQt5
+PyQt5_sip
+python-dotenv
+requests
+web3
+tqdm
+aiosqlite

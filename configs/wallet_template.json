@@ -1,0 +1,23 @@
+{"template": {
+    "enabled": "True",
+    "wallet_address": "",
+    "private_key": "",
+    "BUY_TARGET": 0,
+    "SELL_TARGET": 0,
+    "STOP_LOSS_TARGET": 0,
+    "MINIMUM_VOLUME": 0,
+    "MAXIMUM_BUY": 0,
+    "MINIMUM_BUY": 0,
+    "PRICE_DIFF_TOLERANCE": 0,
+    "SLIPPAGE": 0,
+    "FEE": 0,
+    "SIMULATION": "True",
+    "STRICT_MODE": "False",
+    "TRADE_MODE": "TimeFrame",
+    "TIMEFRAME": 0,
+    "INITIAL_INVESTMENT": 0,
+    "AVAILABLE_BALANCE": 0.0,
+    "USED_BALANCE": 0.0,
+    "CURRENT_BALANCE": 0,
+    "current_holdings": {}
+}}
