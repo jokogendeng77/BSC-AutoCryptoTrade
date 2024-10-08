@@ -1,4 +1,5 @@
 import json
+import platform
 import subprocess
 from PyQt5 import QtWidgets, QtCore, QtGui
 from PyQt5.QtCore import Qt
@@ -91,7 +92,9 @@ def start_stop_application(app_button):
             QMessageBox.critical(None, "Error", f"Failed to stop the application: {str(e)}")
     else:
         try:
-            app_process = subprocess.Popen(['python', 'main.py'], cwd='app_dir')
+            # Determine the correct Python command based on the OS
+            python_cmd = 'python' if platform.system() == 'Windows' else 'python3'
+            app_process = subprocess.Popen([python_cmd, 'main.py'], cwd='app_dir')
             app_button.setText("Stop Application")
             app_button.setStyleSheet("background-color: red; color: white; font-size: 12pt; font-weight: bold;")
             QMessageBox.information(None, "Success", "Application started successfully.")

