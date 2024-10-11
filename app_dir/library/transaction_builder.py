@@ -3,7 +3,7 @@ import requests
 import os
 from dotenv import load_dotenv
 from web3 import Web3
-from utils import core_performance_patcher, initialize_web3
+from library.utils import core_performance_patcher, initialize_web3
 import time, sys
 from loguru import logger
 import asyncio
