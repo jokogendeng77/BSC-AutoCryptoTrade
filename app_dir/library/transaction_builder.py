@@ -436,7 +436,7 @@ def get_contract(address, filename=''):
         if not filename:
             contract.functions.balanceOf(wallet_address).call()  # Test the ABI by calling a function
     except Exception as e:
-        logger.error(f"Error in contract creation or function call: {e}")
+        logger.warning(f"Self Contract Error, Using Default Contract...")
         contract = web3.eth.contract(address=Web3.to_checksum_address(address), abi=mock_abi)
     
     return contract
