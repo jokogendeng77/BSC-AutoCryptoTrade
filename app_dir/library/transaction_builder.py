@@ -407,6 +407,11 @@ def fetch_and_store_abi(address, abi_file_path):
                 with open(abi_file_path, 'w') as abi_file:
                     json.dump(abi, abi_file)
                 return abi
+        else:
+            abi = get_mock_abi()
+            with open(abi_file_path, 'w') as abi_file:
+                json.dump(abi, abi_file)
+            return abi
         logger.error(f"Failed to fetch ABI: {abi_response.text}")
     except requests.exceptions.RequestException as e:
         logger.error(f"Request to fetch ABI failed: {e}")
@@ -494,7 +499,7 @@ def get_bnb_price():
         # Try fetching price from primary API
         response = requests.get(primary_url, headers=primary_headers)
         price_data = response.json()
-        bnb_price = {'price': float(price_data['binancecoin']['usd']), 'timestamp': time.time()}
+        bnb_price = {'price': float(price_data.get('binancecoin', {})['usd']), 'timestamp': time.time()}
         return bnb_price['price']
     except Exception as e:
         logger.error(f"Primary API failed, switching to fallback. Error: {e}")
