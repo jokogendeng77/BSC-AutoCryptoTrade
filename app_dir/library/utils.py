@@ -3,7 +3,7 @@ import aiohttp
 from loguru import logger
 import requests as req
 from web3 import Web3
-from web3.middleware import geth_poa_middleware
+from web3.middleware import ExtraDataToPOAMiddleware
 import os
 import json
 from dotenv import load_dotenv
@@ -30,7 +30,7 @@ def initialize_web3():
             raise ValueError("Unsupported protocol in provider URL")
         
         # Inject PoA middleware
-        web3.middleware_onion.inject(geth_poa_middleware, layer=0)
+        web3.middleware_onion.inject(ExtraDataToPOAMiddleware, layer=0)
         
         # Test connection
         web3.eth.get_block('latest')

@@ -295,6 +295,7 @@ def schedule_tasks():
 
 if __name__ == "__main__":
     try:
+        print("Start Running Main Trade Programs!")
         schedule_tasks()
     except (KeyboardInterrupt, SystemExit):
         print("Scheduler stopped on program exit")
