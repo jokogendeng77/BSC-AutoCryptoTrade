@@ -528,3 +528,17 @@ Error in contract creation or function call: ("The function 'balanceOf' was not 
 Failed to fetch ABI: {"status":"0","message":"NOTOK","result":"Contract source code not verified"}
 2024-10-11T20:57:06.843560+0300 | ERROR : 
 Failed to fetch ABI: {"status":"0","message":"NOTOK","result":"Contract source code not verified"}
+2024-10-11T20:58:21.008185+0300 | ERROR : 
+Primary API failed, switching to fallback. Error: 'usd'
+2024-10-11T20:58:43.447911+0300 | ERROR : 
+Failed to fetch ABI: {"status":"0","message":"NOTOK","result":"Contract source code not verified"}
+2024-10-11T20:58:44.937808+0300 | ERROR : 
+Failed to fetch ABI: {"status":"0","message":"NOTOK","result":"Contract source code not verified"}
+2024-10-11T20:59:09.837864+0300 | ERROR : 
+Error in contract creation or function call: ("The function 'balanceOf' was not found in this contract's abi.", ' Are you sure you provided the correct contract abi?')
+2024-10-11T20:59:10.247956+0300 | ERROR : 
+Error in contract creation or function call: ("The function 'balanceOf' was not found in this contract's abi.", ' Are you sure you provided the correct contract abi?')
+2024-10-11T20:59:14.950854+0300 | ERROR : 
+Failed to fetch ABI: {"status":"0","message":"NOTOK","result":"Contract source code not verified"}
+2024-10-11T20:59:16.424658+0300 | ERROR : 
+Failed to fetch ABI: {"status":"0","message":"NOTOK","result":"Contract source code not verified"}

@@ -407,11 +407,11 @@ def fetch_and_store_abi(address, abi_file_path):
                 with open(abi_file_path, 'w') as abi_file:
                     json.dump(abi, abi_file)
                 return abi
-        else:
-            abi = get_mock_abi()
-            with open(abi_file_path, 'w') as abi_file:
-                json.dump(abi, abi_file)
-            return abi
+            else:
+                abi = get_mock_abi()
+                with open(abi_file_path, 'w') as abi_file:
+                    json.dump(abi, abi_file)
+                return abi
         logger.error(f"Failed to fetch ABI: {abi_response.text}")
     except requests.exceptions.RequestException as e:
         logger.error(f"Request to fetch ABI failed: {e}")
