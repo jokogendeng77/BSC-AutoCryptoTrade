@@ -11,14 +11,14 @@ import random
 import aiohttp
 from decimal import Decimal
 # Configure loguru logger
-config = {
-    "handlers": [
-        {"sink": sys.stderr, "format": "{time} | {level} : <level>\n{message}</level>", "colorize": True},
-        {"sink": "log/user/multi_trade_logs.log", "rotation": "10 MB", "format": "{time} | {level} : \n{message}"},
-        {"sink": "log/technician/multi_trade_logs.log", "rotation": "100 MB", "format": "{time} | {level} : \n{message}", "backtrace": True, "diagnose": True, "serialize": True}
-    ],
-}
-logger.configure(**config)
+# config = {
+#     "handlers": [
+#         {"sink": sys.stderr, "format": "{time} | {level} : <level>\n{message}</level>", "colorize": True},
+#         {"sink": "log/user/multi_trade_logs.log", "rotation": "10 MB", "format": "{time} | {level} : \n{message}"},
+#         {"sink": "log/technician/multi_trade_logs.log", "rotation": "100 MB", "format": "{time} | {level} : \n{message}", "backtrace": True, "diagnose": True, "serialize": True}
+#     ],
+# }
+# logger.configure(**config)
 
 # Load environment variables
 load_dotenv()  # Specify the .env file to load
