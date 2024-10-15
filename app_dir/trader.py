@@ -15,7 +15,7 @@ project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # Configure loguru logger
 config = {
     "handlers": [
-        {"sink": sys.stderr, "format": "{time} | {level} : <level>\n{message}</level>", "colorize": True},
+        {"sink": sys.stderr, "format": "{time} | {level} : {message}", "colorize": True},
         {"sink": os.path.join(project_root, "log", "user", "bot_logs.log"), "rotation": "10 MB", "format": "{time} | {level} : \n{message}"},
         {"sink": os.path.join(project_root, "log", "technician", "bot_logs.log"), "rotation": "100 MB", "format": "{time} | {level} : \n{message}", "backtrace": True, "diagnose": True, "serialize": True}
     ],

@@ -39,13 +39,41 @@ Initial Investment per wallet : 5k-10k
 [Track My Bot Performance](https://birdeye.so/profile/0xFdd6F67d8FBBc07E0d20D506449a18382FF79E75?chain=bsc&duration=7D)
 
 ### 📚 How to Use 📚
-1. Clone the repository
-2. Install the requirements
-3. Run the bot
-4. Add Wallet
-5. Configure the wallet
-6. Fund the wallet
-7. Run the bot
+1. Clone the repository:
+   ```sh
+   git clone https://github.com/jokogendeng77/BSC-AutoCryptoTrade.git
+   cd BSC-AutoCryptoTrade
+   ```
+
+2. Install the requirements:
+   ```sh
+   pip install -r requirements.txt
+   ```
+
+3. Configure the environment variables:
+   - Copy the `.env.example` to `.env` and fill in the required values:
+     ```sh
+     cp app_dir/.env.example app_dir/.env
+     ```
+
+4. Run the bot:
+   ```sh
+   python app.py
+   ```
+
+5. Add Wallet:
+   - Follow the instructions in the bot interface to add your wallet.
+
+6. Configure the wallet:
+   - Click open configuration on wallet that you want to configure
+
+7. Fund the wallet:
+   - Transfer the required amount of BNB or other tokens to your configured wallet address.
+
+8. Run the bot:
+   ```sh
+   python app.py
+   ```
 
 ### 💌 Support and Donations 💌
 ```

