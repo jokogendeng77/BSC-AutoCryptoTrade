@@ -11,6 +11,7 @@ from io import StringIO
 import sys
 import subprocess
 import os
+import atexit
 
 load_dotenv()
 
@@ -236,14 +237,14 @@ def delete_wallet(wallet_name, config_windows):
 
 def start_stop_application(app_button):
     global app_process, redirect_logs, embedded_terminal
-    if hasattr(app_button, 'process') and app_button.process.state() == QProcess.Running:
-        app_button.process.kill()
+    if app_process and app_process.state() == QProcess.Running:
+        app_process.kill()
         app_button.setText("Start Application")
         app_button.setStyleSheet("background-color: #4CAF50; color: white; font-size: 12pt; font-weight: bold;")
         QMessageBox.information(None, "Success", "Application stopped successfully.")
     else:
-        app_button.process = QProcess()
-        app_button.process.setProcessChannelMode(QProcess.MergedChannels)
+        app_process = QProcess()
+        app_process.setProcessChannelMode(QProcess.MergedChannels)
         
         # Display banner before starting the application
         banner = display_banner()
@@ -253,16 +254,16 @@ def start_stop_application(app_button):
             print(banner)
         
         if redirect_logs:
-            app_button.process.readyReadStandardOutput.connect(lambda: embedded_terminal.append_output(app_button.process.readAllStandardOutput().data().decode()))
+            app_process.readyReadStandardOutput.connect(lambda: embedded_terminal.append_output(app_process.readAllStandardOutput().data().decode()))
         else:
-            app_button.process.readyReadStandardOutput.connect(lambda: print(app_button.process.readAllStandardOutput().data().decode(), end=''))
+            app_process.readyReadStandardOutput.connect(lambda: print(app_process.readAllStandardOutput().data().decode(), end=''))
         
-        app_button.process.setWorkingDirectory('app_dir')
+        app_process.setWorkingDirectory('app_dir')
         
         # Detect the OS and determine the correct Python command
         python_command = 'python3' if platform.system() != 'Windows' else 'python'
         
-        app_button.process.start(python_command, ['main.py'])
+        app_process.start(python_command, ['main.py'])
         app_button.setText("Stop Application")
         app_button.setStyleSheet("background-color: red; color: white; font-size: 12pt; font-weight: bold;")
         
@@ -272,8 +273,9 @@ def start_stop_application(app_button):
             QMessageBox.information(None, "Success", "Application started successfully. Check your system terminal for output.")
 
 def create_ui():
-    global app, root, config_windows, embedded_terminal, redirect_logs, show_terminal_button
+    global app, root, config_windows, embedded_terminal, redirect_logs, show_terminal_button, app_process
     app = QtWidgets.QApplication([])
+    app_process = None
     default_font = QtGui.QFont("Arial", 10)
     app.setFont(default_font)
     root = QWidget()
@@ -374,6 +376,13 @@ def create_ui():
     button_layout.addWidget(show_desired_coins_button)
 
     root.show()
+
+    # Register the cleanup function to be called when the application exits
+    atexit.register(cleanup)
+    
+    # Connect the aboutToQuit signal to the cleanup function
+    app.aboutToQuit.connect(cleanup)
+
     app.exec_()
 
 
@@ -878,6 +887,14 @@ def update_log_redirection():
             background-color: {'#37474F' if redirect_logs else 'transparent'};
         }}
     """)
+
+def cleanup():
+    global app_process
+    if hasattr(app_process, 'kill'):
+        app_process.kill()
+    if embedded_terminal and embedded_terminal.terminal_thread.isRunning():
+        embedded_terminal.terminal_thread.quit()
+        embedded_terminal.terminal_thread.wait()
 
 if __name__ == "__main__":
     create_ui()

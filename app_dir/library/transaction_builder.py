@@ -427,7 +427,7 @@ def get_contract(address, filename=''):
             with open(abi_file_path, 'r') as abi_file:
                 abi = json.load(abi_file)
         else:
-            abi = fetch_and_store_abi(address, abi_file_path)
+            abi = mock_abi
         
         contract = web3.eth.contract(address=Web3.to_checksum_address(address), abi=abi if abi else mock_abi)
         if not filename:
