@@ -1,11 +1,174 @@
 import json
 import platform
-import subprocess
 from PyQt5 import QtWidgets, QtCore, QtGui
-from PyQt5.QtCore import Qt
-from PyQt5.QtWidgets import QMessageBox, QLabel, QPushButton, QVBoxLayout, QHBoxLayout, QWidget, QScrollArea, QLineEdit, QTableWidget, QTableWidgetItem, QInputDialog, QHeaderView, QComboBox, QApplication, QDialog
-import psutil
+from PyQt5.QtCore import Qt, QTimer, QThread, pyqtSignal
+from PyQt5.QtWidgets import QMessageBox, QLabel, QPushButton, QVBoxLayout, QHBoxLayout, QWidget, QScrollArea, QLineEdit, QTableWidget, QTableWidgetItem, QInputDialog, QHeaderView, QComboBox, QApplication, QDialog, QTextEdit, QPlainTextEdit, QCheckBox
+from dotenv import load_dotenv, set_key, find_dotenv
+from PyQt5.QtGui import QColor, QTextCharFormat, QFont, QSyntaxHighlighter, QIcon
+from PyQt5.QtCore import QRegExp
+from PyQt5.QtCore import QProcess
+from io import StringIO
+import sys
+import subprocess
+import os
+import atexit
 
+load_dotenv()
+
+# Global variables
+redirect_logs = True
+show_terminal_button = None
+embedded_terminal = None
+
+class SyntaxHighlighter(QSyntaxHighlighter):
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.highlighting_rules = []
+
+        # Error format (red)
+        error_format = QTextCharFormat()
+        error_format.setForeground(QColor("#FF5252"))
+        error_format.setFontWeight(QFont.Bold)
+        self.highlighting_rules.append((QRegExp(".*ERROR.*|.*Error.*|.*error.*"), error_format))
+
+        # Warning format (yellow)
+        warning_format = QTextCharFormat()
+        warning_format.setForeground(QColor("#FFD740"))
+        self.highlighting_rules.append((QRegExp(".*WARNING.*|.*Warning.*|.*warning.*"), warning_format))
+
+        # Info format (cyan)
+        info_format = QTextCharFormat()
+        info_format.setForeground(QColor("#40C4FF"))
+        self.highlighting_rules.append((QRegExp(".*INFO.*|.*Info.*|.*info.*"), info_format))
+
+        # Success format (green)
+        success_format = QTextCharFormat()
+        success_format.setForeground(QColor("#69F0AE"))
+        self.highlighting_rules.append((QRegExp(".*SUCCESS.*|.*Success.*|.*success.*"), success_format))
+
+    def highlightBlock(self, text):
+        for pattern, format in self.highlighting_rules:
+            expression = QRegExp(pattern)
+            index = expression.indexIn(text)
+            while index >= 0:
+                length = expression.matchedLength()
+                self.setFormat(index, length, format)
+                index = expression.indexIn(text, index + length)
+
+class StreamRedirector(StringIO):
+    def __init__(self, text_widget):
+        super().__init__()
+        self.text_widget = text_widget
+        self.last_line = ""
+
+    def write(self, text):
+        super().write(text)
+        self.update_text_widget()
+
+    def update_text_widget(self):
+        text = self.getvalue()
+        lines = text.split('\n')
+        
+        # Check if the last line is a carriage return line (typical for progress bars)
+        if lines[-1].startswith('\r'):
+            # Replace the last line
+            self.text_widget.moveCursor(QtGui.QTextCursor.End)
+            self.text_widget.moveCursor(QtGui.QTextCursor.StartOfLine, QtGui.QTextCursor.KeepAnchor)
+            self.text_widget.insertPlainText(lines[-1])
+        else:
+            # Append new text
+            self.text_widget.moveCursor(QtGui.QTextCursor.End)
+            self.text_widget.insertPlainText(text[len(self.last_line):])
+        
+        self.last_line = text
+        self.text_widget.ensureCursorVisible()
+        QApplication.processEvents()  # Allow GUI to update
+
+class TerminalThread(QThread):
+    output_received = pyqtSignal(str)
+
+    def __init__(self):
+        super().__init__()
+        self.process = None
+
+    def run(self):
+        if os.name == 'nt':  # Windows
+            self.process = subprocess.Popen(
+                ['cmd'],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                stdin=subprocess.PIPE,
+                creationflags=subprocess.CREATE_NO_WINDOW,
+                shell=True
+            )
+        else:  # Unix-like systems
+            self.process = subprocess.Popen(
+                ['bash'],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                stdin=subprocess.PIPE
+            )
+        
+        while True:
+            output = self.process.stdout.readline().decode('utf-8', errors='replace')
+            if output == '' and self.process.poll() is not None:
+                break
+            if output:
+                self.output_received.emit(output.strip())
+
+    def write_command(self, command):
+        if self.process is not None:
+            self.process.stdin.write(f"{command}\n".encode('utf-8'))
+            self.process.stdin.flush()
+
+def display_banner():
+    banner = """
+ █████╗ ██╗   ██╗████████╗ ██████╗  ██████╗██████╗ ██╗   ██╗██████╗ ████████╗ ██████╗ 
+██╔══██╗██║   ██║╚══██╔══╝██╔═══██╗██╔════╝██╔══██╗╚██╗ ██╔╝██╔══██╗╚══██╔══╝██╔═══██╗
+███████║██║   ██║   ██║   ██║   ██║██║     █████╔╝  ╚████╔╝ ██████╔╝   ██║   ██║   ██║
+██╔══██║██║   ██║   ██║   ██║   ██║██║     ██╔══██╗  ╚██╔╝  ██╔═══╝    ██║   ██║   ██║
+██║  ██║╚██████╔╝   ██║   ╚██████╔╝╚██████╗██║  ██║   ██║   ██║        ██║   ╚██████╔╝
+╚═╝  ╚═╝ ╚═════╝    ╚═╝    ╚═════╝  ╚═════╝╚═╝  ╚═╝   ╚═╝   ╚═╝        ╚═╝    ╚═════╝ 
+    """
+    divider = "=" * 85 + "\n"
+    return banner + "\n" + divider
+
+class EmbeddedTerminal(QPlainTextEdit):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setReadOnly(True)
+        self.setStyleSheet("""
+            QPlainTextEdit {
+                background-color: #1E1E1E;
+                color: #E0E0E0;
+                font-family: 'Consolas', 'Courier New', monospace;
+                font-size: 12pt;
+            }
+        """)
+        self.terminal_thread = TerminalThread()
+        self.terminal_thread.output_received.connect(self.append_output)
+        self.display_banner()
+        
+        # Set a fixed size for the terminal
+        self.setMinimumSize(850, 400)
+        self.setMaximumSize(850, 600) 
+
+    def display_banner(self):
+        self.appendPlainText(display_banner())
+
+    def start_process(self):
+        self.terminal_thread.start()
+
+    def append_output(self, text):
+        self.appendPlainText(text)
+        self.ensureCursorVisible()
+
+    def write_command(self, command):
+        self.terminal_thread.write_command(command)
+
+    def clear(self):
+        super().clear()
+        self.display_banner()
 
 def generate_wallet_credentials():
     from web3 import Web3
@@ -73,82 +236,152 @@ def delete_wallet(wallet_name, config_windows):
         QMessageBox.warning(None, "Warning", "Wallet does not exist.")
 
 def start_stop_application(app_button):
-    global app_process
-    if 'app_process' in globals() and app_process.poll() is None:
-        try:
-            parent = psutil.Process(app_process.pid)
-            children = parent.children(recursive=True)
-            for child in children:
-                child.terminate()
-            parent.terminate()
-            gone, still_alive = psutil.wait_procs(children + [parent], timeout=10, callback=None)
-            for p in still_alive:
-                p.kill()
-            app_button.setText("Start Application")
-            QMessageBox.information(None, "Success", "Application stopped successfully.")
-        except psutil.NoSuchProcess:
-            QMessageBox.information(None, "Info", "Process already terminated.")
-        except Exception as e:
-            QMessageBox.critical(None, "Error", f"Failed to stop the application: {str(e)}")
+    global app_process, redirect_logs, embedded_terminal
+    if app_process and app_process.state() == QProcess.Running:
+        app_process.terminate()  # Use terminate instead of kill
+        app_process.waitForFinished()  # Wait for the process to finish
+        app_button.setText("Start Application")
+        app_button.setStyleSheet("background-color: #4CAF50; color: white; font-size: 12pt; font-weight: bold;")
+        QMessageBox.information(None, "Success", "Application stopped successfully.")
     else:
-        try:
-            # Determine the correct Python command based on the OS
-            python_cmd = 'python' if platform.system() == 'Windows' else 'python3'
-            app_process = subprocess.Popen([python_cmd, 'main.py'], cwd='app_dir')
-            app_button.setText("Stop Application")
-            app_button.setStyleSheet("background-color: red; color: white; font-size: 12pt; font-weight: bold;")
-            QMessageBox.information(None, "Success", "Application started successfully.")
-        except Exception as e:
-            QMessageBox.critical(None, "Error", f"Failed to start the application: {str(e)}")
+        app_process = QProcess()
+        app_process.setProcessChannelMode(QProcess.MergedChannels)
+        
+        # Display banner before starting the application
+        banner = display_banner()
+        if not redirect_logs:
+            print(banner)
+        
+        if redirect_logs:
+            app_process.readyReadStandardOutput.connect(lambda: embedded_terminal.append_output(app_process.readAllStandardOutput().data().decode()))
+        else:
+            app_process.readyReadStandardOutput.connect(lambda: print(app_process.readAllStandardOutput().data().decode(), end=''))
+        
+        app_process.setWorkingDirectory('app_dir')
+        
+        # Detect the OS and determine the correct Python command
+        python_command = 'python3' if platform.system() != 'Windows' else 'python'
+        
+        app_process.start(python_command, ['main.py'])
+        app_button.setText("Stop Application")
+        app_button.setStyleSheet("background-color: red; color: white; font-size: 12pt; font-weight: bold;")
+        
+        if redirect_logs:
+            QMessageBox.information(None, "Success", "Application started successfully. Check the embedded terminal for output.")
+        else:
+            QMessageBox.information(None, "Success", "Application started successfully. Check your system terminal for output.")
 
 def create_ui():
-    global app, root, config_windows  # Make these global to access them outside this function
+    global app, root, config_windows, embedded_terminal, redirect_logs, show_terminal_button, app_process
     app = QtWidgets.QApplication([])
+    app_process = None
     default_font = QtGui.QFont("Arial", 10)
     app.setFont(default_font)
     root = QWidget()
     config_windows = {}
-    root.setWindowTitle("Wallet Settings UI")
+    embedded_terminal = EmbeddedTerminal()
+    embedded_terminal.start_process()
+    root.setWindowTitle("BSC Auto Trade Bot!")
     root.resize(800, 600)
-    root.setStyleSheet("background-color: #263238; padding: 10px;")  # Material design background color
+    root.setStyleSheet("background-color: #263238; padding: 10px;")
 
     layout = QVBoxLayout(root)
 
-    header_label = QLabel("Auto Crypto Bot UI", root)
-    header_label.setStyleSheet("font-size: 20pt; font-weight: bold; color: #ECEFF1; margin-bottom: 20px;")  # Material design text color
-    layout.addWidget(header_label, alignment=QtCore.Qt.AlignCenter)
+    # Create a horizontal layout for the header
+    header_layout = QHBoxLayout()
+    layout.addLayout(header_layout)
 
-    # Call to refresh the wallet list
+    # Create a container for the left-side buttons
+    left_button_container = QWidget()
+    left_button_layout = QHBoxLayout(left_button_container)
+    left_button_layout.setContentsMargins(0, 0, 0, 0)
+    left_button_layout.setSpacing(10)
+    header_layout.addWidget(left_button_container, alignment=QtCore.Qt.AlignLeft | QtCore.Qt.AlignTop)
+
+    # Settings button
+    settings_button = QPushButton("⚙️", root)
+    settings_button.setStyleSheet("""
+        QPushButton {
+            background-color: transparent;
+            border: none;
+            color: #ECEFF1;
+            font-size: 24pt;
+            padding: 5px;
+        }
+        QPushButton:hover {
+            background-color: #37474F;
+        }
+    """)
+    settings_button.setToolTip("Settings")
+    settings_button.clicked.connect(show_settings)
+    left_button_layout.addWidget(settings_button)
+
+    # Create a container widget for the title
+    title_container = QWidget()
+    title_layout = QHBoxLayout(title_container)
+    header_layout.addWidget(title_container, 1)  # Stretch factor of 1
+
+    header_label = QLabel("Auto Crypto Bot UI", title_container)
+    header_label.setStyleSheet("font-size: 20pt; font-weight: bold; color: #ECEFF1; margin-bottom: 20px; margin-left: 10px;")
+    title_layout.addWidget(header_label, alignment=QtCore.Qt.AlignCenter)
+
+    # Create the log button with a Unicode symbol
+    show_terminal_button = QPushButton("📋", root)  # Clipboard symbol
+    show_terminal_button.setStyleSheet("""
+        QPushButton {
+            background-color: transparent;
+            border: none;
+            color: #ECEFF1;
+            font-size: 24pt;
+            padding: 5px;
+        }
+        QPushButton:hover {
+            background-color: #37474F;
+        }
+    """)
+    show_terminal_button.setToolTip("Show Terminal")
+    show_terminal_button.clicked.connect(show_terminal)
+    header_layout.addWidget(show_terminal_button, alignment=QtCore.Qt.AlignRight | QtCore.Qt.AlignTop)
+
+    update_log_redirection()  # Set initial state
+
     refresh_wallet_list(config_windows)
 
     button_container = QWidget(root)
     button_layout = QHBoxLayout(button_container)
-    button_layout.setContentsMargins(10, 10, 10, 10)  # Adjusted margins for better spacing
-    button_layout.setSpacing(20)  # Increased spacing between buttons
+    button_layout.setContentsMargins(10, 10, 10, 10)
+    button_layout.setSpacing(20)
     layout.addWidget(button_container, alignment=QtCore.Qt.AlignCenter)
     
     add_wallet_button = QPushButton("Add Wallet", button_container)
-    add_wallet_button.setStyleSheet("background-color: #2196F3; color: white; font-size: 14pt; padding: 10px;")  # Material design button color
+    add_wallet_button.setStyleSheet("background-color: #2196F3; color: white; font-size: 14pt; padding: 10px;")
     add_wallet_button.clicked.connect(lambda: add_wallet(QInputDialog.getText(None, "Add Wallet", "Enter wallet name:")[0], config_windows))
     button_layout.addWidget(add_wallet_button)
 
     app_button = QPushButton("Start Application", button_container)
-    app_button.setStyleSheet("background-color: #4CAF50; color: white; font-size: 14pt; padding: 10px;")  # Material design button color
+    app_button.setStyleSheet("background-color: #4CAF50; color: white; font-size: 14pt; padding: 10px;")
     app_button.clicked.connect(lambda: start_stop_application(app_button))
     button_layout.addWidget(app_button)
 
     # Additional buttons for showing coin lists
     show_available_coins_button = QPushButton("Show Available Coins", button_container)
-    show_available_coins_button.setStyleSheet("background-color: #FF9800; color: white; font-size: 14pt; padding: 10px;")  # Material design button color
+    show_available_coins_button.setStyleSheet("background-color: #FF9800; color: white; font-size: 14pt; padding: 10px;")
     show_available_coins_button.clicked.connect(lambda: show_coin_list('configs/available_coin_list.json', 'Available Coins', config_windows))
     button_layout.addWidget(show_available_coins_button)
 
     show_desired_coins_button = QPushButton("Show Desired Coins", button_container)
-    show_desired_coins_button.setStyleSheet("background-color: #3F51B5; color: white; font-size: 14pt; padding: 10px;")  # Material design button color
+    show_desired_coins_button.setStyleSheet("background-color: #3F51B5; color: white; font-size: 14pt; padding: 10px;")
     show_desired_coins_button.clicked.connect(lambda: show_coin_list('configs/desired_coin_list.json', 'Desired Coins', config_windows))
     button_layout.addWidget(show_desired_coins_button)
 
     root.show()
+
+    # Register the cleanup function to be called when the application exits
+    atexit.register(cleanup)
+    
+    # Connect the aboutToQuit signal to the cleanup function
+    app.aboutToQuit.connect(cleanup)
+
     app.exec_()
 
 
@@ -500,6 +733,168 @@ def reset_current_holdings(wallet, entries):
 def hide_config(wallet, root, config_windows):
     if wallet in config_windows:
         config_windows[wallet].hide()
+
+def show_terminal():
+    terminal_window = QDialog(root)
+    terminal_window.setWindowTitle("Embedded Terminal")
+    terminal_window.setGeometry(100, 100, 800, 600)
+    layout = QVBoxLayout(terminal_window)
+    
+    # Add the embedded terminal to the layout
+    layout.addWidget(embedded_terminal)
+    
+    # Create a button container
+    button_container = QWidget()
+    button_layout = QHBoxLayout(button_container)
+    
+    # Add a clear button
+    clear_button = QPushButton("Clear Terminal")
+    clear_button.setStyleSheet("""
+        QPushButton {
+            background-color: #D32F2F;
+            color: white;
+            font-size: 12pt;
+            padding: 5px;
+        }
+        QPushButton:hover {
+            background-color: #F44336;
+        }
+    """)
+    clear_button.clicked.connect(embedded_terminal.clear)
+    button_layout.addWidget(clear_button)
+    
+    # Add the button container to the main layout
+    layout.addWidget(button_container)
+    
+    terminal_window.setLayout(layout)
+    terminal_window.show()
+
+def load_env_settings():
+    # Try to load .env file
+    env_file = find_dotenv()
+    if not env_file:
+        # If .env doesn't exist, try to load from .env.example
+        example_env = find_dotenv('.env.example')
+        if example_env:
+            with open(example_env, 'r') as example_file:
+                content = example_file.read()
+            with open('.env', 'w') as env_file:
+                env_file.write(content)
+            print("Created .env file from .env.example")
+        else:
+            print("Neither .env nor .env.example found. Creating empty .env file.")
+            open('.env', 'a').close()
+
+    load_dotenv()
+    env_settings = {}
+
+    # Read all keys and values from .env.example
+    example_env = find_dotenv('.env.example')
+    if example_env:
+        with open(example_env, 'r') as example_file:
+            for line in example_file:
+                line = line.strip()
+                if line and not line.startswith('#'):
+                    key, value = line.split('=', 1)
+                    env_settings[key.strip()] = os.getenv(key.strip(), value.strip())
+
+    return env_settings
+
+def save_env_settings(env_settings):
+    for key, value in env_settings.items():
+        set_key('.env', key, value)
+
+def show_settings():
+    global redirect_logs
+    settings_dialog = QDialog(root)
+    settings_dialog.setWindowTitle("Settings")
+    settings_dialog.setStyleSheet("background-color: #263238; color: #ECEFF1;")
+    layout = QVBoxLayout(settings_dialog)
+
+    # Load current .env settings
+    env_settings = load_env_settings()
+
+    # Create a scroll area for settings
+    scroll_area = QScrollArea(settings_dialog)
+    scroll_area.setWidgetResizable(True)
+    scroll_area.setStyleSheet("background-color: #263238; border: none;")
+    layout.addWidget(scroll_area)
+
+    settings_widget = QWidget()
+    settings_layout = QVBoxLayout(settings_widget)
+    scroll_area.setWidget(settings_widget)
+
+    entries = {}
+    for key, value in env_settings.items():
+        entry_frame = QWidget(settings_widget)
+        entry_layout = QHBoxLayout(entry_frame)
+        entry_layout.setContentsMargins(0, 0, 0, 0)
+        entry_layout.setSpacing(10)
+        settings_layout.addWidget(entry_frame)
+
+        config_label = QLabel(f"{key}:", entry_frame)
+        config_label.setStyleSheet("color: #ECEFF1; font-size: 12pt;")
+        entry_layout.addWidget(config_label)
+
+        config_entry = QLineEdit(str(value), entry_frame)
+        config_entry.setStyleSheet("color: #ECEFF1; font-size: 12pt; background-color: #37474F; border: 1px solid #546E7A;")
+        entry_layout.addWidget(config_entry)
+        entries[key] = config_entry
+
+    # Add log redirection option
+    log_redirect_checkbox = QCheckBox("Redirect logs to apps?")
+    log_redirect_checkbox.setChecked(redirect_logs)
+    log_redirect_checkbox.setStyleSheet("color: #ECEFF1; font-size: 12pt;")
+    settings_layout.addWidget(log_redirect_checkbox)
+
+    # Add save button
+    save_button = QPushButton("Save Settings")
+    save_button.setStyleSheet("background-color: #4CAF50; color: white; font-size: 12pt;")
+    save_button.clicked.connect(lambda: save_settings(entries, log_redirect_checkbox.isChecked(), settings_dialog))
+    layout.addWidget(save_button)
+
+    settings_dialog.setLayout(layout)
+    settings_dialog.exec_()
+
+def save_settings(entries, log_redirect, dialog):
+    global redirect_logs
+    try:
+        env_settings = {key: entry.text() for key, entry in entries.items()}
+        save_env_settings(env_settings)
+        
+        # Update log redirection setting
+        redirect_logs = log_redirect
+        update_log_redirection()
+        
+        QMessageBox.information(dialog, "Success", "Settings saved successfully.")
+        dialog.accept()
+    except Exception as e:
+        QMessageBox.critical(dialog, "Error", f"Failed to save settings: {str(e)}")
+
+def update_log_redirection():
+    global show_terminal_button
+    show_terminal_button.setEnabled(redirect_logs)
+    show_terminal_button.setStyleSheet(f"""
+        QPushButton {{
+            background-color: transparent;
+            border: none;
+            color: {'#ECEFF1' if redirect_logs else '#546E7A'};
+            font-size: 24pt;
+            padding: 5px;
+        }}
+        QPushButton:hover {{
+            background-color: {'#37474F' if redirect_logs else 'transparent'};
+        }}
+    """)
+
+def cleanup():
+    global app_process
+    if app_process and app_process.state() == QProcess.Running:
+        app_process.terminate()  # Use terminate instead of kill
+        app_process.waitForFinished()  # Wait for the process to finish
+    if embedded_terminal and embedded_terminal.terminal_thread.isRunning():
+        embedded_terminal.terminal_thread.quit()
+        embedded_terminal.terminal_thread.wait()
 
 if __name__ == "__main__":
     create_ui()

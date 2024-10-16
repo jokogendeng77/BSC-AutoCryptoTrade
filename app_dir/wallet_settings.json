@@ -1,5 +1,4 @@
 {
-    
     "fai": {
         "enabled": "True",
         "wallet_address": "0x1E77F47722B4EBa9d9eF7Dc794F63EC1d6904d60",
@@ -20,7 +19,7 @@
         "INITIAL_INVESTMENT": 0,
         "AVAILABLE_BALANCE": 0.0,
         "USED_BALANCE": 0.0,
-        "CURRENT_BALANCE": 0,
+        "CURRENT_BALANCE": 0.0,
         "current_holdings": {}
     },
     "": {
@@ -43,7 +42,7 @@
         "INITIAL_INVESTMENT": 0,
         "AVAILABLE_BALANCE": 0.0,
         "USED_BALANCE": 0.0,
-        "CURRENT_BALANCE": 0,
+        "CURRENT_BALANCE": 0.0,
         "current_holdings": {}
     }
 }

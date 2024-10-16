@@ -1,27 +1,30 @@
 import json
 import requests
-import os
+import os, sys
 from dotenv import load_dotenv
 from web3 import Web3
 from library.utils import core_performance_patcher, initialize_web3
-import time, sys
+import time
 from loguru import logger
 import asyncio
 import random
 import aiohttp
 from decimal import Decimal
-# Configure loguru logger
-# config = {
-#     "handlers": [
-#         {"sink": sys.stderr, "format": "{time} | {level} : <level>\n{message}</level>", "colorize": True},
-#         {"sink": "log/user/multi_trade_logs.log", "rotation": "10 MB", "format": "{time} | {level} : \n{message}"},
-#         {"sink": "log/technician/multi_trade_logs.log", "rotation": "100 MB", "format": "{time} | {level} : \n{message}", "backtrace": True, "diagnose": True, "serialize": True}
-#     ],
-# }
-# logger.configure(**config)
+from tqdm.asyncio import tqdm
 
 # Load environment variables
 load_dotenv()  # Specify the .env file to load
+
+project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+# Configure loguru logger
+config = {
+    "handlers": [
+        {"sink": sys.stderr, "format": "{time} | {level} : {message}", "colorize": True},
+        {"sink": os.path.join(project_root, "log", "user", "bot_logs.log"), "rotation": "10 MB", "format": "{time} | {level} : \n{message}"},
+        {"sink": os.path.join(project_root, "log", "technician", "bot_logs.log"), "rotation": "100 MB", "format": "{time} | {level} : \n{message}", "backtrace": True, "diagnose": True, "serialize": True}
+    ],
+}
+logger.configure(**config)
 
 # Load settings environment
 available_coin_file = os.getenv('AVAILABLE_COIN_FILE')
@@ -288,54 +291,43 @@ def get_token_price_from_router(token_address, router_contract=router_contract, 
 @logger.catch
 async def get_token_price_from_router_2(token_addresses, router_contract=None, router_name="PancakeSwap", token_balance_before_swap=1, is_buy=True):
     global router_address
-    # Ensure router_contract is loaded
     if router_contract is None:
         router_contract = load_router_contract()
 
     try:
-        # Prepare multicall
         multicall = get_contract(os.getenv("MULTICALL_ADDRESS"), filename='multicall_router_abi')
         
-        # Ensure token_addresses is a list even if a single string is provided
         if isinstance(token_addresses, str):
             token_addresses = [token_addresses]
 
-        # Determine the amount to simulate with based on the path's starting token
         amount_in = web3.to_wei(usdt_to_bnb(1), 'ether') if is_buy else token_balance_before_swap
         paths = [[bnb_address, web3.to_checksum_address(token_address)] if is_buy else [web3.to_checksum_address(token_address), bnb_address] for token_address in token_addresses]
         
-        # Increase chunk size to process more addresses in one go
-        chunk_size = 3000  # Adjust based on network capacity and testing
+        chunk_size = 3000
         token_address_chunks = [token_addresses[i:i + chunk_size] for i in range(0, len(token_addresses), chunk_size)]
         prices = {}
-        market_caps = {}
 
-        async def fetch_prices_for_chunk(chunk):
+        async def fetch_prices_for_chunk(chunk, chunk_index):
             call_data = [router_contract.functions.getAmountsOut(amount_in, path)._encode_transaction_data() for path in paths if web3.to_checksum_address(path[1]) in chunk]
             calls = [(router_contract.address, True, data) for data in call_data]
 
-            # Execute multicall for prices
             results = multicall.functions.aggregate3(calls).call()
-            chunk_prices = {}
-            # Execute multicall for total supplies
             total_supply_calls = [(get_contract(token).address, False, get_contract(token).functions.totalSupply()._encode_transaction_data()) for token in chunk]
             total_supply_results = multicall.functions.aggregate3(total_supply_calls).call()
 
+            chunk_prices = {}
             for i, output in enumerate(results):
                 token_address = chunk[i]
                 try:
-                    # Decode the output for each token address
                     from eth_abi import abi
                     if output[1] != b'':
                         amounts_out = abi.decode(['uint256[]'], output[1])
                         if amounts_out:
-                            price = amounts_out[0][-1]  # Get the last element which is the amount out
+                            price = amounts_out[0][-1]
                             price = web3.from_wei(price, 'ether')
                             token_price_in_usd = float(Decimal('1.0') / Decimal(price)) if is_buy else float(price)
-                            # Get total supply from multicall results
                             total_supply_output = total_supply_results[i]
                             total_supply = abi.decode(['uint256'], total_supply_output[1])[0] if total_supply_output[1] != b'' else 0
-                            # Fetch circulating supply, replace if available
                             circulating_supply = get_token_circulating_supply(token_address)
                             supply_to_use = circulating_supply if circulating_supply else total_supply
                             market_cap = supply_to_use * token_price_in_usd
@@ -345,17 +337,22 @@ async def get_token_price_from_router_2(token_addresses, router_contract=None, r
                         token_price_in_usd = 0
                     chunk_prices[token_address] = [token_price_in_usd, market_cap]
                 except Exception as e:
-                    # logger.error(f"Failed to decode output for token {token_address}: {e}")
                     chunk_prices[token_address] = [0, 0]
+            
+            logger.info(f"Processed chunk {chunk_index + 1}/{len(token_address_chunks)} ({len(chunk)} tokens)")
             return chunk_prices
 
-        # Use tqdm and asyncio.gather to fetch prices for all chunks in parallel
-        from tqdm.asyncio import tqdm
-        price_tasks = [fetch_prices_for_chunk(chunk) for chunk in token_address_chunks]
-        for result in tqdm(asyncio.as_completed(price_tasks), total=len(price_tasks), desc="Fetching prices"):
-            prices_chunk = await result
-            prices.update(prices_chunk)
+        logger.info(f"Fetching prices for {len(token_addresses)} tokens in {len(token_address_chunks)} chunks")
+        
+        async def process_chunks():
+            tasks = [fetch_prices_for_chunk(chunk, i) for i, chunk in enumerate(token_address_chunks)]
+            for task in tqdm(asyncio.as_completed(tasks), total=len(tasks), desc="Processing chunks", unit="chunk"):
+                chunk_prices = await task
+                prices.update(chunk_prices)
 
+        await process_chunks()
+
+        logger.info(f"Completed fetching prices for {len(token_addresses)} tokens")
         return prices
     except Exception as e:
         logger.error(f"Failed to get prices from {router_name} router for tokens: {e}")
@@ -430,13 +427,12 @@ def get_contract(address, filename=''):
             with open(abi_file_path, 'r') as abi_file:
                 abi = json.load(abi_file)
         else:
-            abi = fetch_and_store_abi(address, abi_file_path)
+            abi = mock_abi
         
         contract = web3.eth.contract(address=Web3.to_checksum_address(address), abi=abi if abi else mock_abi)
         if not filename:
             contract.functions.balanceOf(wallet_address).call()  # Test the ABI by calling a function
     except Exception as e:
-        logger.warning(f"Self Contract Error, Using Default Contract...")
         contract = web3.eth.contract(address=Web3.to_checksum_address(address), abi=mock_abi)
     
     return contract
@@ -502,7 +498,7 @@ def get_bnb_price():
         bnb_price = {'price': float(price_data.get('binancecoin', {})['usd']), 'timestamp': time.time()}
         return bnb_price['price']
     except Exception as e:
-        logger.error(f"Primary API failed, switching to fallback. Error: {e}")
+        logger.warning("Primary Price API failed, switching to fallback.")
         try:
             # If primary API fails, use fallback API
             response = requests.get(fallback_url)
