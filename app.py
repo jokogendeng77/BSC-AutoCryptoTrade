@@ -125,7 +125,7 @@ def display_banner():
     banner = """
  █████╗ ██╗   ██╗████████╗ ██████╗  ██████╗██████╗ ██╗   ██╗██████╗ ████████╗ ██████╗ 
 ██╔══██╗██║   ██║╚══██╔══╝██╔═══██╗██╔════╝██╔══██╗╚██╗ ██╔╝██╔══██╗╚══██╔══╝██╔═══██╗
-███████║██║   ██║   ██║   ██║   ██║██║     ██████╔╝ ╚████╔╝ ██████╔╝   ██║   ██║   ██║
+███████║██║   ██║   ██║   ██║   ██║██║     █████╔╝  ╚████╔╝ ██████╔╝   ██║   ██║   ██║
 ██╔══██║██║   ██║   ██║   ██║   ██║██║     ██╔══██╗  ╚██╔╝  ██╔═══╝    ██║   ██║   ██║
 ██║  ██║╚██████╔╝   ██║   ╚██████╔╝╚██████╗██║  ██║   ██║   ██║        ██║   ╚██████╔╝
 ╚═╝  ╚═╝ ╚═════╝    ╚═╝    ╚═════╝  ╚═════╝╚═╝  ╚═╝   ╚═╝   ╚═╝        ╚═╝    ╚═════╝ 
@@ -238,7 +238,8 @@ def delete_wallet(wallet_name, config_windows):
 def start_stop_application(app_button):
     global app_process, redirect_logs, embedded_terminal
     if app_process and app_process.state() == QProcess.Running:
-        app_process.kill()
+        app_process.terminate()  # Use terminate instead of kill
+        app_process.waitForFinished()  # Wait for the process to finish
         app_button.setText("Start Application")
         app_button.setStyleSheet("background-color: #4CAF50; color: white; font-size: 12pt; font-weight: bold;")
         QMessageBox.information(None, "Success", "Application stopped successfully.")
@@ -248,9 +249,7 @@ def start_stop_application(app_button):
         
         # Display banner before starting the application
         banner = display_banner()
-        if redirect_logs:
-            embedded_terminal.appendPlainText(banner)
-        else:
+        if not redirect_logs:
             print(banner)
         
         if redirect_logs:
@@ -890,8 +889,9 @@ def update_log_redirection():
 
 def cleanup():
     global app_process
-    if hasattr(app_process, 'kill'):
-        app_process.kill()
+    if app_process and app_process.state() == QProcess.Running:
+        app_process.terminate()  # Use terminate instead of kill
+        app_process.waitForFinished()  # Wait for the process to finish
     if embedded_terminal and embedded_terminal.terminal_thread.isRunning():
         embedded_terminal.terminal_thread.quit()
         embedded_terminal.terminal_thread.wait()
