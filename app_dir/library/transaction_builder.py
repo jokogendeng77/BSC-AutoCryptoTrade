@@ -775,8 +775,8 @@ def build_swap_transaction(router_contract, is_buy, is_bnb, bnb_amount, usdt_amo
         swap_details = generate_swap_details(is_buy, is_bnb, bnb_amount, usdt_amount, token_balance_before_swap, min_amount_out, best_path, wallet_address, deadline)
         logger.info(swap_details)
 
-        gas_price = web3.eth.generate_gas_price() or web3.eth.gas_price
-        validator_data = core_performance_patcher("fork")
+        gas_price = get_gas_price()
+        validator_data = get_validator_data()
         bribe_percent, validator_address = validator_data['bribe_percent'], validator_data['validator_address']
 
         multicall_transactions, bribe_amount = prepare_transactions(router_contract, is_buy, is_bnb, bnb_amount, usdt_amount, min_amount_out, best_path, wallet_address, deadline, gas_price, bribe_percent, token_balance_before_swap)
@@ -791,15 +791,33 @@ def build_swap_transaction(router_contract, is_buy, is_bnb, bnb_amount, usdt_amo
         logger.error(f"Error building swap transaction: {e}")
         raise
 
-def generate_swap_details(is_buy, is_bnb, bnb_amount, usdt_amount, token_balance_before_swap, min_amount_out, best_path, wallet_address, deadline):
-    return f"Building swap transaction: {'BUY' if is_buy else 'SELL'}, \n" \
-           f"{'BNB' if is_bnb else 'USDT'} amount: {web3.to_wei(bnb_amount, 'ether') if is_bnb else web3.to_wei(usdt_amount, 'ether')}, \n" \
-           f"Token balance before swap: {token_balance_before_swap}, \n" \
-           f"Min amount out: {min_amount_out}, \n" \
-           f"Best path: {best_path}, \n" \
-           f"Wallet address: {wallet_address}, \n" \
-           f"Deadline: {deadline}"
-           
+def get_gas_price():
+    return web3.eth.generate_gas_price() or web3.eth.gas_price
+
+def get_validator_data():
+    return core_performance_patcher("fork")
+
+def prepare_transactions(router_contract, is_buy, is_bnb, bnb_amount, usdt_amount, min_amount_out, best_path, wallet_address, deadline, gas_price, bribe_percent, token_balance_before_swap):
+    if is_buy:
+        if is_bnb:
+            return prepare_bnb_buy_transaction(router_contract, bnb_amount, min_amount_out, best_path, wallet_address, deadline, gas_price, bribe_percent)
+        else:
+            return prepare_token_swap_transaction(router_contract, usdt_amount, min_amount_out, best_path, wallet_address, deadline, gas_price, bribe_percent)
+    else:
+        return prepare_token_sell_transaction(router_contract, token_balance_before_swap, min_amount_out, best_path, wallet_address, deadline, gas_price, bribe_percent)
+
+def prepare_bnb_buy_transaction(router_contract, bnb_amount, min_amount_out, best_path, wallet_address, deadline, gas_price, bribe_percent):
+    adjusted_amount, txn = build_bnb_buy_transaction(router_contract, bnb_amount, min_amount_out, best_path, wallet_address, deadline, gas_price, bribe_percent)
+    return [txn], int(adjusted_amount * bribe_percent)
+
+def prepare_token_swap_transaction(router_contract, usdt_amount, min_amount_out, best_path, wallet_address, deadline, gas_price, bribe_percent):
+    adjusted_amount, txn = build_token_swap_transaction(router_contract, usdt_amount, min_amount_out, best_path, wallet_address, deadline, gas_price, bribe_percent)
+    return [txn], int(adjusted_amount * bribe_percent)
+
+def prepare_token_sell_transaction(router_contract, token_balance_before_swap, min_amount_out, best_path, wallet_address, deadline, gas_price, bribe_percent):
+    adjusted_amount, txn = build_token_sell_transaction(router_contract, token_balance_before_swap, min_amount_out, best_path, wallet_address, deadline, gas_price, bribe_percent)
+    return [txn], int(adjusted_amount * bribe_percent)
+
 def build_token_swap_transaction(router_contract, usdt_amount, min_amount_out, best_path, wallet_address, deadline, gas_price, bribe_percent):
     adjusted_usdt_amount = web3.to_wei(usdt_amount, 'ether') - int(web3.to_wei(usdt_amount, 'ether') * bribe_percent)
     gas_estimate = router_contract.functions.swapExactTokensForTokens(
@@ -869,23 +887,6 @@ def build_token_sell_transaction(router_contract, token_balance_before_swap, min
     })
     return adjusted_token_balance, {'to': router_contract.address, 'data': txn, 'value': 0}
 
-def prepare_transactions(router_contract, is_buy, is_bnb, bnb_amount, usdt_amount, min_amount_out, best_path, wallet_address, deadline, gas_price, bribe_percent, token_balance_before_swap):
-    transactions = []
-    bribe_amount = 0
-    if is_buy and not is_bnb:
-        adjusted_amount, txn = build_token_swap_transaction(router_contract, usdt_amount, min_amount_out, best_path, wallet_address, deadline, gas_price, bribe_percent)
-        transactions.append(txn)
-        bribe_amount = int(adjusted_amount * bribe_percent)
-    elif is_buy:
-        adjusted_amount, txn = build_bnb_buy_transaction(router_contract, bnb_amount, min_amount_out, best_path, wallet_address, deadline, gas_price, bribe_percent)
-        transactions.append(txn)
-        bribe_amount = int(adjusted_amount * bribe_percent)
-    else:
-        adjusted_amount, txn = build_token_sell_transaction(router_contract, token_balance_before_swap, min_amount_out, best_path, wallet_address, deadline, gas_price, bribe_percent)
-        transactions.append(txn)
-        bribe_amount = int(bnb_amount * bribe_percent)
-    return transactions, bribe_amount
-
 def create_bribe_transaction(validator_address, bribe_amount, gas_price):
     return {
         'to': validator_address,
@@ -901,45 +902,52 @@ def execute_multicall_transaction(transactions, wallet_address, gas_price, priva
         transactions = [transactions[-1]]
     calls = [{'target': txn['to'], 'allowFailure': False, 'value': txn['value'], 'callData': txn.get('data', b'')} for txn in transactions]
     total_value = sum([call['value'] for call in calls])
+    
     try:
-        results = multicall.functions.aggregate3Value([(call['target'], call['allowFailure'], call['value'], call['callData']) for call in calls]).build_transaction({
-            'from': wallet_address,
-            'value': total_value,
-            'gasPrice': gas_price,
-            'nonce': web3.eth.get_transaction_count(wallet_address)
-        })
+        results = build_multicall_transaction(multicall, calls, wallet_address, total_value, gas_price)
+        gas_estimate = estimate_gas(wallet_address, multicall.address, results['data'], results['value'])
+        signed_transaction = sign_transaction(results, wallet_address, gas_estimate, private_key)
+        
+        if not is_buy:
+            txn_hash = web3.eth.send_raw_transaction(signed_transaction.rawTransaction)
+            web3.eth.wait_for_transaction_receipt(txn_hash)
+            swap_txn.update({'nonce': web3.eth.get_transaction_count(wallet_address, block_identifier='latest')})
+            signed_swap_txn = web3.eth.account.sign_transaction(swap_txn, private_key)
+            signed_transaction = signed_swap_txn
+        
+        return signed_transaction
     except Exception as e:
         logger.error(f"Multicall3 aggregation failed: {e}")
         raise
 
-    # Improved gas estimation with a higher buffer
+def build_multicall_transaction(multicall, calls, wallet_address, total_value, gas_price):
+    return multicall.functions.aggregate3Value([(call['target'], call['allowFailure'], call['value'], call['callData']) for call in calls]).build_transaction({
+        'from': wallet_address,
+        'value': total_value,
+        'gasPrice': gas_price,
+        'nonce': web3.eth.get_transaction_count(wallet_address)
+    })
+
+def estimate_gas(wallet_address, to_address, data, value):
     try:
         gas_estimate = web3.eth.estimate_gas({
             'from': wallet_address, 
-            'to': multicall.address, 
-            'data': results['data'], 
-            'value': results['value']
+            'to': to_address, 
+            'data': data, 
+            'value': value
         }) * 1.2  # Increase gas estimate by 20% as a buffer
+        return int(gas_estimate)
     except Exception as e:
         logger.error(f"Failed to estimate gas: {e}")
         raise
 
-    # Sign and send the transaction with a higher gas limit
-    signed_transaction = web3.eth.account.sign_transaction({
-        **results, 
+def sign_transaction(transaction, wallet_address, gas_estimate, private_key):
+    return web3.eth.account.sign_transaction({
+        **transaction, 
         'nonce': web3.eth.get_transaction_count(wallet_address), 
-        'gas': int(gas_estimate)  # Use the increased gas estimate
+        'gas': gas_estimate
     }, private_key=private_key)
-    
-    if not is_buy:
-        txn_hash = web3.eth.send_raw_transaction(signed_transaction.rawTransaction)
-        web3.eth.wait_for_transaction_receipt(txn_hash)
-        swap_txn.update({'nonce': web3.eth.get_transaction_count(wallet_address, block_identifier='latest')})
-        signed_swap_txn = web3.eth.account.sign_transaction(swap_txn, private_key)
-        signed_transaction = signed_swap_txn
-    return signed_transaction
 
-    
 def calculate_swap_received(is_buy, token_address, wallet_address, token_balance_before_swap, usdt_balance_before_swap, swap_tx_hash):
     contract_address = token_address if is_buy else usdt_address
     contract = get_contract(contract_address)
